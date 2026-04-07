@@ -1,0 +1,100 @@
+load("@buildifier_prebuilt//:rules.bzl", "buildifier")
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+# bazel run //:buildifier
+# .. or warn
+buildifier(
+    name = "buildifier",
+    exclude_patterns = [
+        "./bazel-*/*",
+        "./.git/*",
+    ],
+    lint_mode = "fix",
+)
+
+# Linux - use prebuilt OpenCV
+# Hermetic build hosed with video module.
+cc_library(
+    name = "opencv_release",
+    srcs = glob(
+        [
+            "third_party/opencv/lib/*.so.411",
+        ],
+        allow_empty = True,
+    ),
+    hdrs = glob(
+        ["third_party/opencv/include/**/*"],
+        allow_empty = True,
+    ),
+    includes = ["third_party/opencv/include"],
+)
+
+cc_library(
+    name = "opencv_debug",
+    srcs = glob(
+        [
+            "third_party/opencv/lib_debug/*.so.411",
+        ],
+        allow_empty = True,
+    ),
+    hdrs = glob(
+        ["third_party/opencv/include_debug/**/*"],
+        allow_empty = True,
+    ),
+    includes = ["third_party/opencv/include_debug"],
+)
+
+config_setting(
+    name = "debug_build",
+    values = {"compilation_mode": "dbg"},
+)
+
+cc_library(
+    name = "opencv",
+    deps = select({
+        ":debug_build": [":opencv_debug"],
+        "//conditions:default": [":opencv_release"],
+    }),
+)
+
+#cc_library(
+#    name = "caibrator",
+#    srcs = ["calibrator.cc"],
+#    hdrs = ["calibrator.h"],
+#    deps = [
+#        ":calibration_data_cc",
+#        "//:opencv",
+#        "@absl//absl/status",
+#        "@glog",
+#    ],
+#)
+#
+#cc_test(
+#    name = "calibrator_test",
+#    srcs = ["calibrator_test.cc"],
+#    data = ["//testdata"],
+#    deps = [
+#        ":caibrator",
+#        "@absl//absl/status:status_matchers",
+#        "@bazel_tools//tools/cpp/runfiles",
+#        "@googletest//:gtest_main",
+#        "@protobuf-matchers//protobuf-matchers",
+#    ],
+#)
+#
+#cc_binary(
+#    name = "calibrator_cli",
+#    srcs = ["calibrator_cli.cc"],
+#    data = ["//testdata"],
+#    deps = [
+#        ":caibrator",
+#        "@absl//absl/flags:flag",
+#        "@absl//absl/flags:parse",
+#        "@absl//absl/status",
+#        "@gflags",
+#        "@glog",
+#        "@status_macros",
+#    ],
+#)

@@ -1,0 +1,22 @@
+bazel_dep(name = "buildifier_prebuilt", version = "8.5.1", dev_dependency = True)
+
+bazel_dep(name = "rules_cc", version = "0.2.17")
+bazel_dep(name = "googletest", version = "1.17.0.bcr.2")
+bazel_dep(name = "abseil-cpp", version = "20260107.1", repo_name = "absl")
+bazel_dep(name = "gflags", version = "2.2.2.bcr.1")
+bazel_dep(name = "glog", version = "0.7.1.bcr.1")
+bazel_dep(name = "platforms", version = "1.0.0")
+bazel_dep(name = "protobuf", version = "33.4")
+
+# TODO: Cannot use protobuf 34.1 because The CcInfo symbol has been removed
+# bazel_dep(name = "protobuf", version = "34.1")
+bazel_dep(name = "protobuf-matchers", version = "0.1.1")
+bazel_dep(name = "rules_proto", version = "7.1.0")
+
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+http_archive(
+    name = "status_macros",
+    strip_prefix = "status_macros-1.0.1",
+    urls = ["https://github.com/bashtavenko/status_macros/archive/refs/tags/v1.0.1.tar.gz"],
+)
