@@ -8,6 +8,8 @@
 #include "absl/strings/str_cat.h"
 #include "calibration/intrinsic_calibration.h"
 #include "calibration/intrinsic_calibration.pb.h"
+#include "calibration/stereo_calibration.pb.h"
+#include "calibration/stereo_calibration.h"
 
 namespace sfx {
 
@@ -16,6 +18,12 @@ proto::IntrinsicCalibration ConvertIntrinsicCalibrationToProto(
 
 IntrinsicCalibration ConvertIntrinsicCalibrationFromProto(
     const proto::IntrinsicCalibration& proto);
+
+proto::StereoCalibration ConvertStereoCalibrationToProto(
+    const StereoCalibration& stereo_calibration);
+
+StereoCalibration ConvertStereoCalibrationFromProto(
+const proto::StereoCalibration& stereo_calibration);
 
 template <typename ProtoType>
 absl::StatusOr<ProtoType> LoadFromTextProtoFile(std::string_view file_path) {

@@ -7,19 +7,24 @@
 #include "proto_utils.h"
 #include "status_macros.h"
 
-ABSL_FLAG(int32_t, camera_id, 0, "Camera ID, usually 0 or 2");
+ABSL_FLAG(int32_t, left_camera_id, 0, "Left camera USB id.");
+ABSL_FLAG(int32_t, right_camera_id, 2, "Right camera USB id.");
 ABSL_FLAG(std::string, output_calibration_proto,
-          "/tmp/intinsic_calibration.txtpb", "Intrinsic camera calibration");
+          "/tmp/stereo_calibration.txtpb",
+          "Output path for the stereo calibration");
 
 absl::Status Run() {
-  ASSIGN_OR_RETURN(auto proto_calibration,
-                   sfx::CalibrateFromVideo(absl::GetFlag(FLAGS_camera_id)));
+  ASSIGN_OR_RETURN(
+      auto proto_calibration,
+      sfx::StereoCalibrationFromVideo(absl::GetFlag(FLAGS_left_camera_id),
+                                      absl::GetFlag(FLAGS_right_camera_id)));
   RETURN_IF_ERROR(sfx::WriteProtoToTextProto(
       proto_calibration, absl::GetFlag(FLAGS_output_calibration_proto)));
   LOG(INFO) << absl::StreamFormat(
-      "Calibration from device %i was completed and saved to %s file.",
-      absl::GetFlag(FLAGS_camera_id),
+      "Calibration from camera %i and camera %i was completed and saved to %s.",
+      absl::GetFlag(FLAGS_left_camera_id), absl::GetFlag(FLAGS_right_camera_id),
       absl::GetFlag(FLAGS_output_calibration_proto));
+
   return absl::OkStatus();
 }
 

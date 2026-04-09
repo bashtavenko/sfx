@@ -1,0 +1,62 @@
+syntax = "proto3";
+import "calibration/intrinsic_calibration.proto";
+
+package sfx.proto;
+
+// Rotation matrix
+message R {
+  float r11 = 1;
+  float r12 = 2;
+  float r13 = 3;
+  float r21 = 4;
+  float r22 = 5;
+  float r23 = 6;
+  float r31 = 7;
+  float r32 = 8;
+  float r33 = 9;
+};
+
+// Translation matrix (vector)
+message T {
+  float r11 = 1;
+  float r21 = 2;
+  float r31 = 3;
+}
+
+// Essential matrix
+message E {
+  float r11 = 1;
+  float r12 = 2;
+  float r13 = 3;
+  float r21 = 4;
+  float r22 = 5;
+  float r23 = 6;
+  float r31 = 7;
+  float r32 = 8;
+  float r33 = 9;
+};
+
+// Fundamental matrix
+message F {
+  float r11 = 1;
+  float r12 = 2;
+  float r13 = 3;
+  float r21 = 4;
+  float r22 = 5;
+  float r23 = 6;
+  float r31 = 7;
+  float r32 = 8;
+  float r33 = 9;
+};
+
+message StereoCalibration {
+  sfx.proto.CameraMatrix left_camera_matrix = 1;
+  sfx.proto.DistortionParameters left_camera_distortion = 2;
+  sfx.proto.CameraMatrix right_camera_matrix = 3;
+  sfx.proto.DistortionParameters right_camera_distortion = 4;
+  R r = 5;
+  T t = 6;
+  E e = 7;
+  F f = 8;
+  float reprojection_error = 9;
+};
