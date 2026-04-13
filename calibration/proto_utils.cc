@@ -111,14 +111,8 @@ proto::StereoCalibration ConvertStereoCalibrationToProto(
     result.mutable_right_camera_distortion()->set_k5(
         stereo_calibration.right_distortion_params.at<double>(0, 4));
   }
-  if (stereo_calibration.right_distortion_params.cols >= 6) {
-    result.mutable_right_camera_distortion()->set_p1(
-        stereo_calibration.right_distortion_params.at<double>(0, 5));
-  }
-  if (stereo_calibration.right_distortion_params.cols >= 7) {
-    result.mutable_right_camera_distortion()->set_p2(
-        stereo_calibration.right_distortion_params.at<double>(0, 6));
-  }
+  // Ignore p1 and p2 because cv::StereoCalibration returns 1x7 shape with zero
+  // p1 and p2
 
   result.mutable_r()->set_r11(stereo_calibration.R.at<double>(0, 0));
   result.mutable_r()->set_r12(stereo_calibration.R.at<double>(0, 1));
@@ -183,7 +177,10 @@ StereoCalibration ConvertStereoCalibrationFromProto(
   result.right_camera_matrix.at<double>(1, 2) =
       stereo_calibration.right_camera_matrix().cy();
 
-  result.left_distortion_params = cv::Mat::zeros(1, 7, CV_64F);
+  // Ignore p1 and p2
+  constexpr int32_t kNumDistortionParams = 5;
+  result.left_distortion_params =
+      cv::Mat::zeros(1, kNumDistortionParams, CV_64F);
   result.left_distortion_params.at<double>(0, 0) =
       stereo_calibration.left_camera_distortion().k1();
   result.left_distortion_params.at<double>(0, 1) =
@@ -198,16 +195,9 @@ StereoCalibration ConvertStereoCalibrationFromProto(
     result.left_distortion_params.at<double>(0, 4) =
         stereo_calibration.left_camera_distortion().k5();
   }
-  if (stereo_calibration.left_camera_distortion().has_p1()) {
-    result.left_distortion_params.at<double>(0, 5) =
-        stereo_calibration.left_camera_distortion().p1();
-  }
-  if (stereo_calibration.left_camera_distortion().has_p2()) {
-    result.left_distortion_params.at<double>(0, 6) =
-        stereo_calibration.left_camera_distortion().p2();
-  }
 
-  result.right_distortion_params = cv::Mat::zeros(1, 7, CV_64F);
+  result.right_distortion_params =
+      cv::Mat::zeros(1, kNumDistortionParams, CV_64F);
   result.right_distortion_params.at<double>(0, 0) =
       stereo_calibration.right_camera_distortion().k1();
   result.right_distortion_params.at<double>(0, 1) =

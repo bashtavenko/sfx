@@ -80,7 +80,17 @@ absl::StatusOr<proto::IntrinsicCalibration> CalibrateFromVideo(
 }
 
 absl::StatusOr<StereoCalibration> StereoCalibrateFromMat(
-    const cv::Mat& left_image, const cv::Mat& right_image) {
+    const cv::Mat& left_image_input, const cv::Mat& right_image_input) {
+  cv::Mat left_image = left_image_input;
+  cv::Mat right_image = right_image_input;
+  if (left_image.size() != right_image.size()) {
+    if (left_image.size() != right_image.size()) {
+      cv::resize(right_image, right_image, left_image.size(),
+                 /*fx=*/0, /*fy=*/0, cv::INTER_LINEAR);
+    }
+  }
+  const auto image_size = cv::Size(left_image.size());
+
   std::vector<cv::Point2f> corners;
   if (!cv::findChessboardCorners(left_image, board, corners)) {
     return absl::InternalError("Chessboard for the left camera not found.");
@@ -103,7 +113,7 @@ absl::StatusOr<StereoCalibration> StereoCalibrateFromMat(
       stereo_calibration.left_camera_matrix,
       stereo_calibration.left_distortion_params,
       stereo_calibration.right_camera_matrix,
-      stereo_calibration.right_distortion_params, left_image.size(),
+      stereo_calibration.right_distortion_params, image_size,
       stereo_calibration.R, stereo_calibration.T, stereo_calibration.E,
       stereo_calibration.F, flags);
 

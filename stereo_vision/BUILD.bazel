@@ -1,0 +1,30 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+cc_library(
+    name = "rectification",
+    srcs = ["rectification.cc"],
+    hdrs = ["rectification.h"],
+    deps = [
+        "//:opencv",
+        "//calibration:stereo_calibration",
+        "@absl//absl/status",
+        "@glog",
+    ],
+)
+
+cc_binary(
+    name = "rectification_cli",
+    srcs = ["rectification_cli.cc"],
+    deps = [
+        ":rectification",
+        "//calibration:proto_utils",
+        "//calibration:stereo_calibration",
+        "//calibration:stereo_calibration_cc",
+        "@absl//absl/flags:flag",
+        "@absl//absl/flags:parse",
+        "@absl//absl/status",
+        "@gflags",
+        "@glog",
+        "@status_macros",
+    ],
+)
