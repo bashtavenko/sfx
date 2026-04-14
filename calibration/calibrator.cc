@@ -152,15 +152,12 @@ absl::StatusOr<proto::StereoCalibration> StereoCalibrationFromVideo(
     cv::cvtColor(left_frame, left_frame_gray, cv::COLOR_BGR2GRAY);
     cv::Mat right_frame_gray;
     cv::cvtColor(right_frame, right_frame_gray, cv::COLOR_BGR2GRAY);
+    CHECK(left_frame_gray.size() == right_frame_gray.size())
+        << "Cameras have different resolutions.";
     std::vector<cv::Point2f> left_corners;
     std::vector<cv::Point2f> right_corners;
     if (ChessboardFound(left_frame_gray, left_corners) &&
         ChessboardFound(right_frame_gray, right_corners)) {
-      // Make the input sizes the same
-      if (left_frame_gray.size() != right_frame_gray.size()) {
-        cv::resize(right_frame_gray, right_frame_gray, left_frame_gray.size(),
-                   /*fx=*/0, /*fy=*/0, cv::INTER_LINEAR);
-      }
       CalibrationPairs pairs{.left_frame = left_frame_gray,
                              .left_corners = left_corners,
                              .right_frame = right_frame_gray,
