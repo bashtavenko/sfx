@@ -11,22 +11,29 @@ static constexpr int32_t kBoardWidth = 6;
 static constexpr int32_t kBoardHeight = 9;
 const cv::Size board(kBoardWidth, kBoardHeight);
 
-static std::vector<std::vector<cv::Point3f>> GenerateObjectPoints() {
-  std::vector<std::vector<cv::Point3f>> result;
-  const cv::Size board(kBoardWidth, kBoardHeight);
+static bool ChessboardFound(const cv::Mat& image,
+                            std::vector<cv::Point2f>& corners) {
+  return cv::findChessboardCorners(image, board, corners);
+}
+
+static std::vector<std::vector<cv::Point3f>> GenerateObjectPoints(
+    int32_t size = 1) {
   std::vector<cv::Point3f> obj;
   for (int i = 0; i < kBoardHeight; ++i) {
     for (int j = 0; j < kBoardWidth; ++j) {
       obj.emplace_back(j, i, 0.0f);
     }
   }
-  result.push_back(obj);
+  std::vector<std::vector<cv::Point3f>> result(size);
+  for (int i = 0; i < size; ++i) {
+    result[i] = obj;
+  }
   return result;
 }
 
 absl::StatusOr<IntrinsicCalibration> CalibrateFromMat(const cv::Mat& image) {
   std::vector<cv::Point2f> corners;
-  if (!cv::findChessboardCorners(image, board, corners)) {
+  if (!ChessboardFound(image, corners)) {
     return absl::InternalError("Chessboard not found.");
   }
 
@@ -80,28 +87,19 @@ absl::StatusOr<proto::IntrinsicCalibration> CalibrateFromVideo(
 }
 
 absl::StatusOr<StereoCalibration> StereoCalibrateFromMat(
-    const cv::Mat& left_image_input, const cv::Mat& right_image_input) {
-  cv::Mat left_image = left_image_input;
-  cv::Mat right_image = right_image_input;
-  if (left_image.size() != right_image.size()) {
-    if (left_image.size() != right_image.size()) {
-      cv::resize(right_image, right_image, left_image.size(),
-                 /*fx=*/0, /*fy=*/0, cv::INTER_LINEAR);
-    }
-  }
-  const auto image_size = cv::Size(left_image.size());
+    const std::vector<CalibrationPairs>& pairs) {
+  CHECK(!pairs.empty());
+  const auto image_size = cv::Size(pairs[0].left_frame.size());
 
-  std::vector<cv::Point2f> corners;
-  if (!cv::findChessboardCorners(left_image, board, corners)) {
-    return absl::InternalError("Chessboard for the left camera not found.");
-  }
   std::vector<std::vector<cv::Point2f>> left_image_points;
-  left_image_points.emplace_back(corners);
-  if (!cv::findChessboardCorners(right_image, board, corners)) {
-    return absl::InternalError("Chessboard for the right camera not found.");
-  }
   std::vector<std::vector<cv::Point2f>> right_image_points;
-  right_image_points.emplace_back(corners);
+  for (const auto& pair : pairs) {
+    left_image_points.emplace_back(pair.left_corners);
+    right_image_points.emplace_back(pair.right_corners);
+  }
+
+  const std::vector<std::vector<cv::Point3f>> object_points =
+      GenerateObjectPoints(pairs.size());
 
   // The default is cv::CALIB_FIX_INTRINSIC, which is NOT we want
   // It tells to compute intrinsic from scratch.
@@ -109,7 +107,7 @@ absl::StatusOr<StereoCalibration> StereoCalibrateFromMat(
 
   StereoCalibration stereo_calibration;
   stereo_calibration.reprojection_error = cv::stereoCalibrate(
-      GenerateObjectPoints(), left_image_points, right_image_points,
+      object_points, left_image_points, right_image_points,
       stereo_calibration.left_camera_matrix,
       stereo_calibration.left_distortion_params,
       stereo_calibration.right_camera_matrix,
@@ -120,13 +118,6 @@ absl::StatusOr<StereoCalibration> StereoCalibrateFromMat(
   if (stereo_calibration.left_camera_matrix.at<double>(0, 0) == 1.) {
     return absl::InternalError("No intrinsic calibration found.");
   }
-
-  //
-  // LOG(INFO) << "DBG:" << stereo_calibration.left_camera_matrix.at<double>(0,
-  // 0) << " "
-  // << stereo_calibration.left_camera_matrix.at<double>(0, 1) << " " <<
-  // stereo_calibration.left_camera_matrix.i
-
   return stereo_calibration;
 }
 
@@ -144,27 +135,44 @@ absl::StatusOr<proto::StereoCalibration> StereoCalibrationFromVideo(
         absl::StrFormat("Failed to open right camera: %i", right_camera_id));
   }
 
-  constexpr int32_t kNumberOfFrames = 10;
+  // Get valid frames in both cameras
+  constexpr int32_t kNumberOfFrames = 50;
+  auto valid_frames = std::vector<CalibrationPairs>(kNumberOfFrames);
+
   int32_t number_of_frames = 0;
   cv::Mat left_frame;
   cv::Mat right_frame;
-  bool calibrated = false;
 
   absl::StatusOr<StereoCalibration> stereo_calibration;
+
+  // Blocks untill if find the required number of valid frames
   while (left_cam.read(left_frame) && right_cam.read(right_frame) &&
-         number_of_frames < kNumberOfFrames && !calibrated) {
+         number_of_frames < kNumberOfFrames) {
     cv::Mat left_frame_gray;
     cv::cvtColor(left_frame, left_frame_gray, cv::COLOR_BGR2GRAY);
     cv::Mat right_frame_gray;
     cv::cvtColor(right_frame, right_frame_gray, cv::COLOR_BGR2GRAY);
-    stereo_calibration =
-        StereoCalibrateFromMat(left_frame_gray, right_frame_gray);
-    ++number_of_frames;
+    std::vector<cv::Point2f> left_corners;
+    std::vector<cv::Point2f> right_corners;
+    if (ChessboardFound(left_frame_gray, left_corners) &&
+        ChessboardFound(right_frame_gray, right_corners)) {
+      // Make the input sizes the same
+      if (left_frame_gray.size() != right_frame_gray.size()) {
+        cv::resize(right_frame_gray, right_frame_gray, left_frame_gray.size(),
+                   /*fx=*/0, /*fy=*/0, cv::INTER_LINEAR);
+      }
+      CalibrationPairs pairs{.left_frame = left_frame_gray,
+                             .left_corners = left_corners,
+                             .right_frame = right_frame_gray,
+                             .right_corners = right_corners};
+      valid_frames[number_of_frames] = pairs;
+      ++number_of_frames;
+    }
   }
+  stereo_calibration = StereoCalibrateFromMat(valid_frames);
   if (!stereo_calibration.ok()) {
     return absl::InternalError(absl::StrFormat(
-        "Could not calibrate after %i frames - %s.", kNumberOfFrames,
-        stereo_calibration.status().message()));
+        "Could not calibrate - %s.", stereo_calibration.status().message()));
   }
 
   return ConvertStereoCalibrationToProto(stereo_calibration.value());

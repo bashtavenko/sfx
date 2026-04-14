@@ -18,6 +18,13 @@ struct StereoCalibration {
   double reprojection_error = 0;
 };
 
+struct CalibrationPairs {
+  cv::Mat left_frame;
+  std::vector<cv::Point2f> left_corners;
+  cv::Mat right_frame;
+  std::vector<cv::Point2f> right_corners;
+};
+
 } // namespace sfx
 
 
