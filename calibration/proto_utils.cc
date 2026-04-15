@@ -48,6 +48,23 @@ IntrinsicCalibration ConvertIntrinsicCalibrationFromProto(
   result.camera_matrix.at<double>(1, 1) = proto.camera_matrix().fy();
   result.camera_matrix.at<double>(0, 2) = proto.camera_matrix().cx();
   result.camera_matrix.at<double>(1, 2) = proto.camera_matrix().cy();
+
+  constexpr int32_t kNumDistortionParams = 5;
+  result.distortion_params = cv::Mat::zeros(1, kNumDistortionParams, CV_64F);
+  result.distortion_params.at<double>(0, 0) =
+      proto.distortion_parameters().k1();
+  result.distortion_params.at<double>(0, 1) =
+      proto.distortion_parameters().k2();
+  result.distortion_params.at<double>(0, 2) =
+      proto.distortion_parameters().k3();
+  if (proto.distortion_parameters().has_k4()) {
+    result.distortion_params.at<double>(0, 3) =
+        proto.distortion_parameters().k4();
+  }
+  if (proto.distortion_parameters().has_k5()) {
+    result.distortion_params.at<double>(0, 4) =
+        proto.distortion_parameters().k5();
+  }
   result.reprojection_error = proto.reprojection_error();
   return result;
 }

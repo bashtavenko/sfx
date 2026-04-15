@@ -4,6 +4,7 @@
 #include "glog/logging.h"
 #include "opencv2/imgproc.hpp"
 #include "proto_utils.h"
+#include "status_macros.h"
 
 namespace sfx {
 
@@ -31,26 +32,22 @@ static std::vector<std::vector<cv::Point3f>> GenerateObjectPoints(
   return result;
 }
 
-absl::StatusOr<IntrinsicCalibration> CalibrateFromMat(const cv::Mat& image) {
-  std::vector<cv::Point2f> corners;
-  if (!ChessboardFound(image, corners)) {
-    return absl::InternalError("Chessboard not found.");
-  }
-
-  std::vector<std::vector<cv::Point2f>> image_points;
-
-  cv::cornerSubPix(
-      image, corners, cv::Size(11, 11), cv::Size(-1, -1),
-      cv::TermCriteria(cv::TermCriteria::EPS + cv::TermCriteria::MAX_ITER, 30,
-                       0.1));
-  image_points.push_back(corners);
+absl::StatusOr<IntrinsicCalibration> CalibrateFromInput(
+    const std::vector<CalibrationInput>& input) {
+  CHECK(!input.empty());
+  const auto image_size = cv::Size(input[0].image.size());
 
   IntrinsicCalibration intrinsic_calibration;
   cv::Mat camera_matrix;
   cv::Mat distortions;
 
+  std::vector<std::vector<cv::Point2f>> image_points;
+  for (const auto& data : input) {
+    image_points.emplace_back(data.corners);
+  }
+
   const double reprojection_error = cv::calibrateCamera(
-      GenerateObjectPoints(), image_points, image.size(),
+      GenerateObjectPoints(input.size()), image_points, image_size,
       intrinsic_calibration.camera_matrix,
       intrinsic_calibration.distortion_params, cv::noArray(), cv::noArray());
   intrinsic_calibration.reprojection_error = reprojection_error;
@@ -65,29 +62,31 @@ absl::StatusOr<proto::IntrinsicCalibration> CalibrateFromVideo(
         absl::StrFormat("Failed to open camera: '%i'.", camera_id));
   }
 
-  constexpr int32_t kNumberOfFrames = 10;
+  constexpr int32_t kNumberOfFrames = 50;
+  auto valid_frames = std::vector<CalibrationInput>(kNumberOfFrames);
   int32_t number_of_frames = 0;
   cv::Mat frame;
-  absl::StatusOr<IntrinsicCalibration> intrinsic_calibration;
 
-  while (capture.read(frame) && number_of_frames < kNumberOfFrames &&
-         !intrinsic_calibration.ok()) {
+  // Get valid image points
+  while (capture.read(frame) && number_of_frames < kNumberOfFrames) {
     cv::Mat gray;
     cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
-    intrinsic_calibration = CalibrateFromMat(gray);
-    ++number_of_frames;
+    std::vector<cv::Point2f> image_points;
+    if (ChessboardFound(gray, image_points)) {
+      CalibrationInput input{.image = gray, .corners = image_points};
+      valid_frames[number_of_frames] = input;
+      ++number_of_frames;
+    }
   }
-  if (!intrinsic_calibration.ok()) {
-    return absl::InternalError(absl::StrFormat(
-        "Could not calibrate after %i frames - %s.", kNumberOfFrames,
-        intrinsic_calibration.status().message()));
-  }
-
-  return (ConvertIntrinsicCalibrationToProto(intrinsic_calibration.value()));
+  ASSIGN_OR_RETURN(auto intrinsic_calibration,
+                   CalibrateFromInput(valid_frames));
+  return (ConvertIntrinsicCalibrationToProto(intrinsic_calibration));
 }
 
-absl::StatusOr<StereoCalibration> StereoCalibrateFromMat(
-    const std::vector<CalibrationPairs>& pairs) {
+absl::StatusOr<StereoCalibration> CalibrateFromPairs(
+    const std::vector<CalibrationPairs>& pairs,
+    const IntrinsicCalibration& left_intrinsic,
+    const IntrinsicCalibration& right_intrinsic) {
   CHECK(!pairs.empty());
   const auto image_size = cv::Size(pairs[0].left_frame.size());
 
@@ -101,11 +100,15 @@ absl::StatusOr<StereoCalibration> StereoCalibrateFromMat(
   const std::vector<std::vector<cv::Point3f>> object_points =
       GenerateObjectPoints(pairs.size());
 
-  // The default is cv::CALIB_FIX_INTRINSIC, which is NOT we want
-  // It tells to compute intrinsic from scratch.
-  constexpr int32_t flags = 0;
+  // Copy intrinsic so that cv::StereoCalibrate can fix them.
+  constexpr int32_t stereo_flags = cv::CALIB_FIX_INTRINSIC;
 
   StereoCalibration stereo_calibration;
+  stereo_calibration.left_camera_matrix = left_intrinsic.camera_matrix;
+  stereo_calibration.left_distortion_params = left_intrinsic.distortion_params;
+  stereo_calibration.right_camera_matrix = right_intrinsic.camera_matrix;
+  stereo_calibration.right_distortion_params =
+      right_intrinsic.distortion_params;
   stereo_calibration.reprojection_error = cv::stereoCalibrate(
       object_points, left_image_points, right_image_points,
       stereo_calibration.left_camera_matrix,
@@ -113,7 +116,7 @@ absl::StatusOr<StereoCalibration> StereoCalibrateFromMat(
       stereo_calibration.right_camera_matrix,
       stereo_calibration.right_distortion_params, image_size,
       stereo_calibration.R, stereo_calibration.T, stereo_calibration.E,
-      stereo_calibration.F, flags);
+      stereo_calibration.F, stereo_flags);
 
   if (stereo_calibration.left_camera_matrix.at<double>(0, 0) == 1.) {
     return absl::InternalError("No intrinsic calibration found.");
@@ -122,7 +125,9 @@ absl::StatusOr<StereoCalibration> StereoCalibrateFromMat(
 }
 
 absl::StatusOr<proto::StereoCalibration> StereoCalibrationFromVideo(
-    int32_t left_camera_id, int32_t right_camera_id) {
+    int32_t left_camera_id, int32_t right_camera_id,
+    const IntrinsicCalibration& left_intrinsic,
+    const IntrinsicCalibration& right_intrinsic) {
   cv::VideoCapture left_cam(left_camera_id);
   if (!left_cam.isOpened()) {
     return absl::NotFoundError(
@@ -136,7 +141,7 @@ absl::StatusOr<proto::StereoCalibration> StereoCalibrationFromVideo(
   }
 
   // Get valid frames in both cameras
-  constexpr int32_t kNumberOfFrames = 50;
+  constexpr int32_t kNumberOfFrames = 1;
   auto valid_frames = std::vector<CalibrationPairs>(kNumberOfFrames);
 
   int32_t number_of_frames = 0;
@@ -166,7 +171,8 @@ absl::StatusOr<proto::StereoCalibration> StereoCalibrationFromVideo(
       ++number_of_frames;
     }
   }
-  stereo_calibration = StereoCalibrateFromMat(valid_frames);
+  stereo_calibration =
+      CalibrateFromPairs(valid_frames, left_intrinsic, right_intrinsic);
   if (!stereo_calibration.ok()) {
     return absl::InternalError(absl::StrFormat(
         "Could not calibrate - %s.", stereo_calibration.status().message()));

@@ -7,28 +7,20 @@ namespace sfx {
 absl::Status Rectify(const cv::Mat& left_image_input,
                      const cv::Mat& right_image_input,
                      const StereoCalibration& stereo_calibration) {
+  // Left and right images are mutable and will be remaped.
   cv::Mat left_image = left_image_input;
   cv::Mat right_image = right_image_input;
   cv::Mat R1;
   cv::Mat R2;
   cv::Mat P1;
   cv::Mat P2;
-  if (left_image.size() != right_image.size()) {
-    if (left_image.size() != right_image.size()) {
-      cv::resize(right_image, right_image, left_image.size(),
-                 /*fx=*/0, /*fy=*/0, cv::INTER_LINEAR);
-    }
-  }
   const auto image_size = cv::Size(left_image.size());
-
   cv::stereoRectify(stereo_calibration.left_camera_matrix,
                     stereo_calibration.left_distortion_params,
                     stereo_calibration.right_camera_matrix,
                     stereo_calibration.right_distortion_params, image_size,
                     stereo_calibration.R, stereo_calibration.T, R1, R2, P1, P2,
-                    cv::noArray(), 0);
-  const bool is_vertical =
-      std::abs(P2.at<double>(1, 3)) > std::abs(P2.at<double>(0, 3));
+                    /*Q=*/cv::noArray());
 
   // Precompute maps for cv::remap()
   cv::Mat map11;
@@ -57,13 +49,12 @@ absl::Status Rectify(const cv::Mat& left_image_input,
 
   // Get disparity
   cv::Ptr<cv::StereoSGBM> stereo = cv::StereoSGBM::create(
-    0,                   // minDisparity
-    96,                  // numDisparities
-    11,                  // blockSize
-    8 * 11 * 11,         // P1
-    32 * 11 * 11,        // P2
-    1, 10, 10, 100, 32,
-    cv::StereoSGBM::MODE_HH);
+      0,           // minDisparity
+      16,          // numDisparities - must be divisible by 16; ~2x expected
+      5,           // blockSize - smaller for low-baseline
+      8 * 5 * 5,   // P1
+      32 * 5 * 5,  // P2
+      1, 10, 10, 100, 32, cv::StereoSGBM::MODE_HH);
   cv::Mat disparity;
   stereo->compute(left_image_rectified, right_image_rectified, disparity);
   cv::Mat visual_disparity;

@@ -11,6 +11,12 @@ struct IntrinsicCalibration {
   double reprojection_error = 0;
 };
 
+// Input of calibration
+struct CalibrationInput {
+  cv::Mat image; // Chessboard
+  std::vector<cv::Point2f> corners; // detected corners
+};
+
 } // namespace sfx
 
 

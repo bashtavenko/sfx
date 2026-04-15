@@ -9,15 +9,32 @@
 
 ABSL_FLAG(int32_t, left_camera_id, 0, "Left camera USB id.");
 ABSL_FLAG(int32_t, right_camera_id, 2, "Right camera USB id.");
+ABSL_FLAG(std::string, left_intrinsic, "testdata/intinsic_calibration.txtpb",
+          "Left camera intrinsic");
+ABSL_FLAG(std::string, right_intrinsic, "testdata/intinsic_calibration.txtpb",
+          "Left camera intrinsic");
 ABSL_FLAG(std::string, output_calibration_proto,
           "/tmp/stereo_calibration.txtpb",
           "Output path for the stereo calibration");
 
 absl::Status Run() {
+  ASSIGN_OR_RETURN(auto left_proto_intrinsic,
+                   sfx::LoadFromTextProtoFile<sfx::proto::IntrinsicCalibration>(
+                       absl::GetFlag(FLAGS_left_intrinsic)));
+  ASSIGN_OR_RETURN(auto right_proto_intrinsic,
+                   sfx::LoadFromTextProtoFile<sfx::proto::IntrinsicCalibration>(
+                       absl::GetFlag(FLAGS_right_intrinsic)));
+  sfx::IntrinsicCalibration left_intrinsic =
+      sfx::ConvertIntrinsicCalibrationFromProto(left_proto_intrinsic);
+      sfx::ConvertIntrinsicCalibrationFromProto(left_proto_intrinsic);
+  sfx::IntrinsicCalibration right_intrinsic =
+      sfx::ConvertIntrinsicCalibrationFromProto(right_proto_intrinsic);
+
   ASSIGN_OR_RETURN(
       auto proto_calibration,
       sfx::StereoCalibrationFromVideo(absl::GetFlag(FLAGS_left_camera_id),
-                                      absl::GetFlag(FLAGS_right_camera_id)));
+                                      absl::GetFlag(FLAGS_right_camera_id),
+                                      left_intrinsic, right_intrinsic));
   RETURN_IF_ERROR(sfx::WriteProtoToTextProto(
       proto_calibration, absl::GetFlag(FLAGS_output_calibration_proto)));
   LOG(INFO) << absl::StreamFormat(
