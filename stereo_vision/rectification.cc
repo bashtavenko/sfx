@@ -14,13 +14,14 @@ absl::Status Rectify(const cv::Mat& left_image_input,
   cv::Mat R2;
   cv::Mat P1;
   cv::Mat P2;
+  cv::Mat Q;
   const auto image_size = cv::Size(left_image.size());
   cv::stereoRectify(stereo_calibration.left_camera_matrix,
                     stereo_calibration.left_distortion_params,
                     stereo_calibration.right_camera_matrix,
                     stereo_calibration.right_distortion_params, image_size,
                     stereo_calibration.R, stereo_calibration.T, R1, R2, P1, P2,
-                    /*Q=*/cv::noArray());
+                    Q);
 
   // Precompute maps for cv::remap()
   cv::Mat map11;
@@ -59,6 +60,11 @@ absl::Status Rectify(const cv::Mat& left_image_input,
   stereo->compute(left_image_rectified, right_image_rectified, disparity);
   cv::Mat visual_disparity;
   cv::normalize(disparity, visual_disparity, 0, 256, cv::NORM_MINMAX, CV_8U);
+
+  disparity.convertTo(disparity, CV_32FC1);  // Convert to a single-channel
+  cv::Mat point_cloud;
+  cv::reprojectImageTo3D(disparity, point_cloud, Q,
+                         /*handleMissingValues=*/true);
 
   return absl::OkStatus();
 }

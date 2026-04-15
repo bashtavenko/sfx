@@ -38,18 +38,19 @@ absl::StatusOr<IntrinsicCalibration> CalibrateFromInput(
   const auto image_size = cv::Size(input[0].image.size());
 
   IntrinsicCalibration intrinsic_calibration;
-  cv::Mat camera_matrix;
-  cv::Mat distortions;
 
   std::vector<std::vector<cv::Point2f>> image_points;
   for (const auto& data : input) {
     image_points.emplace_back(data.corners);
   }
 
-  const double reprojection_error = cv::calibrateCamera(
-      GenerateObjectPoints(input.size()), image_points, image_size,
-      intrinsic_calibration.camera_matrix,
-      intrinsic_calibration.distortion_params, cv::noArray(), cv::noArray());
+  constexpr int32_t flags =
+      cv::CALIB_FIX_K3 | cv::CALIB_FIX_K4 | cv::CALIB_FIX_K5;
+  const double reprojection_error =
+      cv::calibrateCamera(GenerateObjectPoints(input.size()), image_points,
+                          image_size, intrinsic_calibration.camera_matrix,
+                          intrinsic_calibration.distortion_params,
+                          cv::noArray(), cv::noArray(), flags);
   intrinsic_calibration.reprojection_error = reprojection_error;
   return intrinsic_calibration;
 }
