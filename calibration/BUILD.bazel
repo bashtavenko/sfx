@@ -101,3 +101,18 @@ cc_proto_library(
     name = "stereo_calibration_cc",
     deps = [":stereo_calibration_proto"],
 )
+
+cc_binary(
+    name = "sl_calibrate",
+    srcs = ["sl_calibrate_main.cc"],
+    data = ["//testdata"],
+    deps = [
+        ":caibrator",
+        "@absl//absl/flags:flag",
+        "@absl//absl/flags:parse",
+        "@absl//absl/status",
+        "@gflags",
+        "@glog",
+        "@status_macros",
+    ],
+)

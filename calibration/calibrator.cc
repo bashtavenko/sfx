@@ -7,7 +7,6 @@
 #include "status_macros.h"
 
 namespace sfx {
-
 static constexpr int32_t kBoardWidth = 6;
 static constexpr int32_t kBoardHeight = 9;
 const cv::Size board(kBoardWidth, kBoardHeight);
@@ -18,11 +17,11 @@ static bool ChessboardFound(const cv::Mat& image,
 }
 
 static std::vector<std::vector<cv::Point3f>> GenerateObjectPoints(
-    int32_t size = 1) {
+    int32_t size = 1, int32_t square_size = 22) {
   std::vector<cv::Point3f> obj;
-  for (int i = 0; i < kBoardHeight; ++i) {
-    for (int j = 0; j < kBoardWidth; ++j) {
-      obj.emplace_back(j, i, 0.0f);
+  for (int32_t i = 0; i < kBoardHeight; ++i) {
+    for (int32_t j = 0; j < kBoardWidth; ++j) {
+      obj.emplace_back(j * square_size, i * square_size, 0.0f);
     }
   }
   std::vector<std::vector<cv::Point3f>> result(size);
@@ -44,14 +43,35 @@ absl::StatusOr<IntrinsicCalibration> CalibrateFromInput(
     image_points.emplace_back(data.corners);
   }
 
-  constexpr int32_t flags =
-      cv::CALIB_FIX_K3 | cv::CALIB_FIX_K4 | cv::CALIB_FIX_K5;
-  const double reprojection_error =
-      cv::calibrateCamera(GenerateObjectPoints(input.size()), image_points,
-                          image_size, intrinsic_calibration.camera_matrix,
-                          intrinsic_calibration.distortion_params,
-                          cv::noArray(), cv::noArray(), flags);
+  const double reprojection_error = cv::calibrateCamera(
+      GenerateObjectPoints(input.size()), image_points, image_size,
+      intrinsic_calibration.camera_matrix,
+      intrinsic_calibration.distortion_params, cv::noArray(), cv::noArray());
   intrinsic_calibration.reprojection_error = reprojection_error;
+
+  return intrinsic_calibration;
+}
+
+// This is only requied for the structured light
+absl::StatusOr<IntrinsicCalibration> CalibrateFromInput(
+    const std::vector<std::vector<cv::Point3f>>& object_points,
+    const std::vector<CalibrationInput>& input, cv::Mat& R, cv::Mat& T) {
+  CHECK(!input.empty());
+  const auto image_size = cv::Size(input[0].image.size());
+
+  IntrinsicCalibration intrinsic_calibration;
+
+  std::vector<std::vector<cv::Point2f>> image_points;
+  for (const auto& data : input) {
+    image_points.emplace_back(data.corners);
+  }
+
+  const double reprojection_error =
+      cv::calibrateCamera(object_points, image_points, image_size,
+                          intrinsic_calibration.camera_matrix,
+                          intrinsic_calibration.distortion_params, R, T);
+  intrinsic_calibration.reprojection_error = reprojection_error;
+
   return intrinsic_calibration;
 }
 
@@ -180,6 +200,110 @@ absl::StatusOr<proto::StereoCalibration> StereoCalibrationFromVideo(
   }
 
   return ConvertStereoCalibrationToProto(stereo_calibration.value());
+}
+
+absl::StatusOr<proto::StereoCalibration> StructuredLightCalibration(
+    int32_t camera_id) {
+  cv::VideoCapture capture(camera_id);
+  if (!capture.isOpened()) {
+    return absl::NotFoundError(
+        absl::StrFormat("Failed to open camera: '%i'.", camera_id));
+  }
+
+  constexpr int32_t kNumberOfFrames = 10;
+  auto image_points = std::vector<std::vector<cv::Point2f>>(kNumberOfFrames);
+  int32_t number_of_frames = 0;
+  cv::Mat frame;
+
+  // Get valid image points
+  while (capture.read(frame) && number_of_frames < kNumberOfFrames) {
+    cv::Mat gray;
+    cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
+    std::vector<cv::Point2f> corners;
+    if (ChessboardFound(gray, corners)) {
+      image_points[number_of_frames] = corners;
+      ++number_of_frames;
+    }
+  }
+  const cv::Size image_size = frame.size();
+  std::vector<std::vector<cv::Point3f>> camera_object_points =
+      GenerateObjectPoints(/*size=*/kNumberOfFrames, /*square_size=*/22);
+  cv::Mat camera_matrix;
+  cv::Mat camera_distortion_params;
+  cv::Mat R;
+  cv::Mat T;
+  cv::calibrateCamera(camera_object_points, image_points, image_size,
+                      camera_matrix, camera_distortion_params, R, T);
+  // The shape of R and T is nX1 (number of frames) of cv::Point3F
+  // return (ConvertIntrinsicCalibrationToProto(intrinsic_calibration));
+  ASSIGN_OR_RETURN(auto projector_object_points,
+                   sfx::BackProject(camera_matrix, camera_distortion_params, R,
+                                    T, image_points));
+
+  cv::Mat projector_camera_matrix;
+  cv::Mat projector_distorion_params;
+  cv::calibrateCamera(projector_object_points, image_points, image_size,
+                      projector_camera_matrix, projector_distorion_params,
+                      cv::noArray(), cv::noArray());
+
+  StereoCalibration stereo_calibration;
+  stereo_calibration.left_camera_matrix = camera_matrix;
+  stereo_calibration.left_distortion_params = camera_distortion_params;
+  stereo_calibration.right_camera_matrix = projector_camera_matrix;
+  stereo_calibration.right_distortion_params = projector_distorion_params;
+  stereo_calibration.reprojection_error =
+      stereo_calibration.reprojection_error = cv::stereoCalibrate(
+          projector_object_points, image_points, image_points,
+          stereo_calibration.left_camera_matrix,
+          stereo_calibration.left_distortion_params,
+          stereo_calibration.right_camera_matrix,
+          stereo_calibration.right_distortion_params, image_size,
+          stereo_calibration.R, stereo_calibration.T, stereo_calibration.E,
+          stereo_calibration.F, cv::CALIB_FIX_INTRINSIC);
+
+  return sfx::ConvertStereoCalibrationToProto(stereo_calibration);
+}
+
+absl::StatusOr<std::vector<std::vector<cv::Point3f>>> BackProject(
+    const cv::Mat& camera_matrix, const cv::Mat& distortion_params,
+    const cv::Mat& R, const cv::Mat& T,
+    const std::vector<std::vector<cv::Point2f>>& image_points) {
+  auto object_points = std::vector<std::vector<cv::Point3f>>(
+      image_points.size(), std::vector<cv::Point3f>(image_points[0].size()));
+
+  auto make_homography = [&](int32_t index) {
+    cv::Mat homgraphy(3, 3, cv::DataType<double>::type);
+    cv::Rodrigues(R.row(index).t(), homgraphy);
+    homgraphy.at<double>(0, 2) = T.at<double>(index, 0);
+    homgraphy.at<double>(1, 2) = T.at<double>(index, 1);
+    homgraphy.at<double>(2, 2) = T.at<double>(index, 2);
+    return homgraphy;
+  };
+
+  auto normalize = [](const cv::Mat& x) {
+    CHECK_EQ(x.rows, 3);
+    CHECK_EQ(x.cols, 1);
+    CHECK_GT(x.at<double>(2, 0), 0);
+    return cv::Mat({3, 1}, {x.at<double>(0, 0) / x.at<double>(2, 0),
+                            x.at<double>(1, 0) / x.at<double>(2, 0), 0.0});
+  };
+
+  // TODO: Use distortion_param to re-map image points before back projecting.
+  for (size_t i = 0; i < image_points.size(); ++i) {
+    auto homography = make_homography(i);
+    for (size_t j = 0; j < image_points[i].size(); ++j) {
+      const cv::Mat image_point = cv::Mat_<double>(
+          {3, 1}, {image_points[i][j].x, image_points[i][j].y, 1});
+      const cv::Mat object_point =
+          (camera_matrix * homography).inv() * image_point;
+      const cv::Mat normalized_object_point = normalize(object_point);
+      object_points[i][j] =
+          cv::Point3f(normalized_object_point.at<double>(0, 0),
+                      normalized_object_point.at<double>(1, 0),
+                      normalized_object_point.at<double>(2, 0));
+    }
+  }
+  return object_points;
 }
 
 }  // namespace sfx
