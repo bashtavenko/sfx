@@ -1,0 +1,18 @@
+load("@protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+load("@rules_proto//proto:defs.bzl", "proto_library")
+
+cc_binary(
+    name = "pattern_main",
+    srcs = ["pattern_main.cc"],
+    data = ["//testdata"],
+    deps = [
+        "//:opencv",
+        "@absl//absl/flags:flag",
+        "@absl//absl/flags:parse",
+        "@absl//absl/status",
+        "@gflags",
+        "@glog",
+        "@status_macros",
+    ],
+)
