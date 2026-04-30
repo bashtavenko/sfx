@@ -16,3 +16,21 @@ cc_binary(
         "@status_macros",
     ],
 )
+
+cc_library(
+    name = "graycode",
+    srcs = ["graycode.cc"],
+    hdrs = ["graycode.h"],
+    deps = [
+        "//:opencv",
+    ],
+)
+
+cc_test(
+    name = "graycode_test",
+    srcs = ["graycode_test.cc"],
+    deps = [
+        ":graycode",
+        "@googletest//:gtest_main",
+    ],
+)
